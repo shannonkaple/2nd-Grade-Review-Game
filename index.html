@@ -33,6 +33,7 @@
         </div>
         <div class="flex gap-2">
           <button id="diagWrite" class="rounded-lg bg-indigo-600 text-white px-3 py-1.5">Test Write</button>
+          <button id="diagRoom" class="rounded-lg bg-emerald-600 text-white px-3 py-1.5">Make Sample Room</button>
           <button id="diagClear" class="rounded-lg border border-indigo-300 px-3 py-1.5">Clear</button>
         </div>
       </div>
@@ -271,7 +272,30 @@
     document.getElementById('copyCodeBtn').addEventListener('click', ()=>{ const v=$('#roomInput').value.trim(); if(!v) return; navigator.clipboard.writeText(v); toast('Copied room code'); });
 
     // ===== Diagnostics buttons =====
-    document.getElementById('diagWrite').addEventListener('click', ()=>{ if(OFFLINE){ logStatus('OFFLINE: skipping write'); return; } db.collection('diag').add({ when:new Date().toISOString(), who:'manual' }).then(()=>logStatus('WRITE OK')).catch(e=>logStatus('WRITE ERROR: '+(e?.message||e))); });
+    document.getElementById('diagWrite').addEventListener('click', ()=>{
+      if(!db){ logStatus('SDK not ready'); return; }
+      db.collection('diag').add({ when:new Date().toISOString(), who:'manual' })
+        .then(()=>logStatus('WRITE OK'))
+        .catch(e=>logStatus('WRITE ERROR: '+(e?.message||e)));
+    });
+    document.getElementById('diagRoom').addEventListener('click', async ()=>{
+      if(!db){ logStatus('SDK not ready'); return; }
+      const code = 'TEST-' + Math.random().toString(36).slice(2,6).toUpperCase();
+      try {
+        await db.collection('rooms').doc(code).set({
+          className: 'Diagnostics', createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          status: 'lobby', currentChallenge: null, endsAt: null
+        }, { merge: true });
+        await db.collection('rooms').doc(code).collection('players').doc('probe').set({
+          name: 'Probe', joinedAt: firebase.firestore.FieldValue.serverTimestamp(), ready:true
+        }, { merge: true });
+        logStatus('ROOM OK: created '+code+' (check Firestore → rooms)');
+        toast('Sample room created: '+code);
+      } catch(e){
+        logStatus('ROOM WRITE ERROR: '+(e?.message||e));
+        toast('Room write failed: '+(e?.message||e), false);
+      }
+    }); return; } db.collection('diag').add({ when:new Date().toISOString(), who:'manual' }).then(()=>logStatus('WRITE OK')).catch(e=>logStatus('WRITE ERROR: '+(e?.message||e))); });
     document.getElementById('diagClear').addEventListener('click', ()=>{ const p=document.getElementById('diagLog'); if(p) p.textContent=''; const t=document.getElementById('diagText'); if(t) t.textContent='Ready'; });
   </script>
 
