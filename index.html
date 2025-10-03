@@ -22,6 +22,23 @@
       <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">Tech Skills Battle</h1>
       <div class="text-xs sm:text-sm text-slate-500">Host on GitHub Pages • Realtime by Firebase</div>
     </header>
+<section id="diagnostics" class="mt-3 p-3 rounded-xl bg-indigo-50 text-indigo-900 text-sm border border-indigo-200">
+  <div class="flex items-center justify-between gap-2">
+    <div><span class="font-semibold">Status:</span> <span id="diagText">Checking…</span></div>
+    <div class="flex gap-2">
+      <button id="diagWrite" class="rounded-lg bg-indigo-600 text-white px-3 py-1.5" onclick="
+        if (OFFLINE) { __log('OFFLINE: skipping write'); }
+        else { db.collection('diag').add({when:new Date().toISOString(),who:'manual'}).then(()=>__log('WRITE OK')).catch(e=>__log('WRITE ERROR: '+(e?.message||e))); }
+      ">Test Write</button>
+      <button id="diagClear" class="rounded-lg border border-indigo-300 px-3 py-1.5" onclick="document.getElementById('diagLog').textContent=''; document.getElementById('diagText').textContent='Ready';">Clear</button>
+    </div>
+  </div>
+  <pre id="diagLog" class="mt-2 whitespace-pre-wrap"></pre>
+  <div id="offlineBanner" class="hidden mt-2 p-2 rounded-lg bg-rose-100 text-rose-900 border border-rose-300">
+    Running in <b>offline mode</b> (no realtime). To enable realtime battles, ask IT to allow:
+    <code class="block mt-1">*.gstatic.com · *.firebaseio.com · *.googleapis.com · firebaseinstallations.googleapis.com</code>
+  </div>
+</section>
 
     <!-- Diagnostics (visible on page) -->
     <section id="diagnostics" class="mt-3 p-3 rounded-xl bg-indigo-50 text-indigo-900 text-sm border border-indigo-200">
@@ -176,6 +193,38 @@
       appId: "1:296308464379:web:5b74f5b5e31a61b3eeae5e",
       measurementId: "G-Q9PSF3KVQ3"
     };
+    
+<script>
+// ---- OFFLINE fallback + status logger (add this near the top) ----
+let OFFLINE = false;
+function __log(msg){
+  const t = document.getElementById('diagText'); if(t) t.textContent = msg;
+  const p = document.getElementById('diagLog');  if(p) p.textContent += (p.textContent ? "\n":"") + msg;
+  const b = document.getElementById('offlineBanner');
+  if (OFFLINE && b) b.classList.remove('hidden');
+}
+window.addEventListener('error', e => __log('PAGE ERROR: ' + (e?.message || (e.filename+':'+e.lineno))));
+
+// Try initializing Firebase; if the SDK is blocked, switch to OFFLINE
+let db = null;
+try {
+  if (!window.firebase) {
+    OFFLINE = true;
+    __log('SDK not available — switching to OFFLINE mode');
+  } else {
+    const app = firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+    __log('Init OK for project: ' + (firebaseConfig.projectId || 'unknown'));
+    // tiny write probe
+    db.collection('diag').add({ when: new Date().toISOString(), who: 'probe' })
+      .then(() => __log('WRITE OK: able to write to Firestore'))
+      .catch(e => __log('WRITE ERROR: ' + (e?.message || e)));
+  }
+} catch (e) {
+  OFFLINE = true;
+  __log('INIT ERROR: ' + (e?.message || e));
+}
+</script>
 
     // Initialize (guarded)
     let db = null;
@@ -252,22 +301,31 @@
     let playersUnsub = null;
 
     async function createRoom(){
-      const name = $('#nameInput').value.trim();
-      const className = $('#classSelect').value.trim();
-      if(!name || !className){ toast('Enter name and class', false); return; }
-      const code = genRoomCode(className);
-      $('#roomInput').value = code;
-      try {
-        if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).set({
-          className, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          status: 'lobby', currentChallenge: null, endsAt: null
-        }, { merge: true });
-        joinRoom(code, name, className);
-      } catch (e) {
-        console.error(e);
-        toast(`Create failed: ${e && e.message ? e.message : e}`, false);
-      }
-    }
+  const name = document.querySelector('#nameInput').value.trim();
+  const className = document.querySelector('#classSelect').value.trim();
+  if(!name || !className){ toast('Enter name and class', false); return; }
+
+  const code = (className.replace(/[^0-9A-Za-z]/g,'').slice(0,3).toUpperCase() || 'C')
+              + '-' + Math.random().toString(36).slice(2,6).toUpperCase();
+  document.querySelector('#roomInput').value = code;
+
+  if (OFFLINE) {
+    joinRoom(code, name, className); // local-only lobby
+    return;
+  }
+
+  try {
+    await db.collection('rooms').doc(code).set({
+      className,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      status: 'lobby', currentChallenge: null, endsAt: null
+    }, { merge: true });
+    joinRoom(code, name, className);
+  } catch(e){
+    toast(`Create failed: ${e?.message || e}`, false);
+  }
+}
+
       const code = genRoomCode(className);
       $('#roomInput').value = code;
       if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).set({
@@ -278,23 +336,21 @@
     }
 
     async function joinExisting(){
-      const name = $('#nameInput').value.trim();
-      const className = $('#classSelect').value.trim();
-      const code = $('#roomInput').value.trim();
-      if(!name || !className || !code){ toast('Fill name, class, and room', false); return; }
-      try {
-        const doc = if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).get();
-        if(!doc.exists){ toast('Room not found', false); return; }
-        joinRoom(code, name, className);
-      } catch (e) {
-        console.error(e);
-        toast(`Join failed: ${e && e.message ? e.message : e}`, false);
-      }
-    }
-      const doc = if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).get();
-      if(!doc.exists){ toast('Room not found', false); return; }
-      joinRoom(code, name, className);
-    }
+  const name = document.querySelector('#nameInput').value.trim();
+  const className = document.querySelector('#classSelect').value.trim();
+  const code = document.querySelector('#roomInput').value.trim();
+  if(!name || !className || !code){ toast('Fill name, class, and room', false); return; }
+
+  if (OFFLINE) { joinRoom(code, name, className); return; }
+
+  try {
+    const doc = await db.collection('rooms').doc(code).get();
+    if(!doc.exists){ toast('Room not found', false); return; }
+    joinRoom(code, name, className);
+  } catch(e){
+    toast(`Join failed: ${e?.message || e}`, false);
+  }
+}
 
     async function joinRoom(code, name, className){
       state.name = name; state.className = className; state.roomCode = code;
@@ -623,3 +679,4 @@
   ==== -->
 </body>
 </html>
+
