@@ -23,6 +23,21 @@
       <div class="text-xs sm:text-sm text-slate-500">Host on GitHub Pages • Realtime by Firebase</div>
     </header>
 
+    <!-- Diagnostics (visible on page) -->
+    <section id="diagnostics" class="mt-3 p-3 rounded-xl bg-indigo-50 text-indigo-900 text-sm border border-indigo-200">
+      <div class="flex items-center justify-between gap-2">
+        <div>
+          <span class="font-semibold">Status:</span>
+          <span id="diagText">Checking…</span>
+        </div>
+        <div class="flex gap-2">
+          <button id="diagWrite" class="rounded-lg bg-indigo-600 text-white px-3 py-1.5">Test Write</button>
+          <button id="diagClear" class="rounded-lg border border-indigo-300 px-3 py-1.5">Clear</button>
+        </div>
+      </div>
+      <pre id="diagLog" class="mt-2 whitespace-pre-wrap"></pre>
+    </section>
+
     <!-- Auth / Join -->
     <section id="join" class="mt-6 grid gap-4 sm:grid-cols-2">
       <div class="p-4 sm:p-6 bg-white rounded-2xl shadow border border-slate-200">
@@ -157,6 +172,39 @@
     // Initialize
     const app = firebase.initializeApp(firebaseConfig);
     const db = firebase.firestore();
+
+    // ===== Diagnostics =====
+    function logDiag(msg){
+      const el = document.getElementById('diagLog');
+      if(el) el.textContent += (el.textContent ? "
+" : "") + msg;
+      const text = document.getElementById('diagText');
+      if(text) text.textContent = msg;
+    }
+
+    async function runDiagnostics(){
+      try {
+        if(!window.firebase){
+          logDiag('ERROR: Firebase SDK not loaded');
+          return;
+        }
+        logDiag('SDK loaded');
+        logDiag('Init OK for project: ' + (firebaseConfig.projectId || 'unknown'));
+        // Try a tiny write (safe collection name)
+        await db.collection('diag').add({ when: new Date().toISOString(), who: 'status-check' });
+        logDiag('WRITE OK: able to write to Firestore');
+      } catch (e) {
+        logDiag('WRITE ERROR: ' + (e && e.message ? e.message : e));
+      }
+    }
+
+    window.addEventListener('load', ()=>{
+      const btn = document.getElementById('diagWrite');
+      const clr = document.getElementById('diagClear');
+      if(btn) btn.addEventListener('click', runDiagnostics);
+      if(clr) clr.addEventListener('click', ()=>{ const el = document.getElementById('diagLog'); if(el) el.textContent=''; document.getElementById('diagText').textContent='Ready'; });
+      runDiagnostics();
+    });
 
     // ==== 2) Simple helpers ====
     const $ = (sel) => document.querySelector(sel);
