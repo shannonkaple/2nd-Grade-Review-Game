@@ -14,6 +14,7 @@
     .dropzone.over { outline: 2px dashed #4f46e5; }
     .hidden-scrollbar::-webkit-scrollbar { display: none; }
     .hidden-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    button[disabled] { opacity: .6; cursor: not-allowed; }
   </style>
 </head>
 <body class="min-h-screen bg-slate-50 text-slate-900">
@@ -22,23 +23,6 @@
       <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">Tech Skills Battle</h1>
       <div class="text-xs sm:text-sm text-slate-500">Host on GitHub Pages • Realtime by Firebase</div>
     </header>
-<section id="diagnostics" class="mt-3 p-3 rounded-xl bg-indigo-50 text-indigo-900 text-sm border border-indigo-200">
-  <div class="flex items-center justify-between gap-2">
-    <div><span class="font-semibold">Status:</span> <span id="diagText">Checking…</span></div>
-    <div class="flex gap-2">
-      <button id="diagWrite" class="rounded-lg bg-indigo-600 text-white px-3 py-1.5" onclick="
-        if (OFFLINE) { __log('OFFLINE: skipping write'); }
-        else { db.collection('diag').add({when:new Date().toISOString(),who:'manual'}).then(()=>__log('WRITE OK')).catch(e=>__log('WRITE ERROR: '+(e?.message||e))); }
-      ">Test Write</button>
-      <button id="diagClear" class="rounded-lg border border-indigo-300 px-3 py-1.5" onclick="document.getElementById('diagLog').textContent=''; document.getElementById('diagText').textContent='Ready';">Clear</button>
-    </div>
-  </div>
-  <pre id="diagLog" class="mt-2 whitespace-pre-wrap"></pre>
-  <div id="offlineBanner" class="hidden mt-2 p-2 rounded-lg bg-rose-100 text-rose-900 border border-rose-300">
-    Running in <b>offline mode</b> (no realtime). To enable realtime battles, ask IT to allow:
-    <code class="block mt-1">*.gstatic.com · *.firebaseio.com · *.googleapis.com · firebaseinstallations.googleapis.com</code>
-  </div>
-</section>
 
     <!-- Diagnostics (visible on page) -->
     <section id="diagnostics" class="mt-3 p-3 rounded-xl bg-indigo-50 text-indigo-900 text-sm border border-indigo-200">
@@ -53,6 +37,10 @@
         </div>
       </div>
       <pre id="diagLog" class="mt-2 whitespace-pre-wrap"></pre>
+      <div id="offlineBanner" class="hidden mt-2 p-2 rounded-lg bg-rose-100 text-rose-900 border border-rose-300">
+        Running in <b>offline mode</b> (no realtime). To enable realtime battles, ask IT to allow:
+        <code class="block mt-1">*.gstatic.com · *.firebaseio.com · *.googleapis.com · firebaseinstallations.googleapis.com</code>
+      </div>
     </section>
 
     <!-- Auth / Join -->
@@ -175,15 +163,14 @@
   <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
 
   <script>
-    // ==== Diagnostics utilities MUST be defined before init ====
-    function __log(msg){
-      var t=document.getElementById('diagText'); if(t) t.textContent=msg;
-      var p=document.getElementById('diagLog'); if(p){ p.textContent += (p.textContent?'
-':'')+msg; }
+    // ===== Diagnostics helpers =====
+    function logStatus(msg){
+      const t = document.getElementById('diagText'); if(t) t.textContent = msg;
+      const p = document.getElementById('diagLog'); if(p) p.textContent += (p.textContent?'\n':'') + msg;
     }
-    window.addEventListener('error', function(e){ __log('PAGE ERROR: '+(e && e.message ? e.message : (e.filename+':'+e.lineno))); });
+    window.addEventListener('error', e=> logStatus('PAGE ERROR: ' + (e?.message || (e.filename+':'+e.lineno))));
 
-    // ==== 1) Configure Firebase (real config) ====
+    // ===== Firebase config (your real keys) =====
     const firebaseConfig = {
       apiKey: "AIzaSyDiqYEzZSgkHQKngLnGz-aBPMx9R4Qva2g",
       authDomain: "review-game-6d670.firebaseapp.com",
@@ -193,490 +180,108 @@
       appId: "1:296308464379:web:5b74f5b5e31a61b3eeae5e",
       measurementId: "G-Q9PSF3KVQ3"
     };
-    
-<script>
-// ---- OFFLINE fallback + status logger (add this near the top) ----
-let OFFLINE = false;
-function __log(msg){
-  const t = document.getElementById('diagText'); if(t) t.textContent = msg;
-  const p = document.getElementById('diagLog');  if(p) p.textContent += (p.textContent ? "\n":"") + msg;
-  const b = document.getElementById('offlineBanner');
-  if (OFFLINE && b) b.classList.remove('hidden');
-}
-window.addEventListener('error', e => __log('PAGE ERROR: ' + (e?.message || (e.filename+':'+e.lineno))));
 
-// Try initializing Firebase; if the SDK is blocked, switch to OFFLINE
-let db = null;
-try {
-  if (!window.firebase) {
-    OFFLINE = true;
-    __log('SDK not available — switching to OFFLINE mode');
-  } else {
-    const app = firebase.initializeApp(firebaseConfig);
-    db = firebase.firestore();
-    __log('Init OK for project: ' + (firebaseConfig.projectId || 'unknown'));
-    // tiny write probe
-    db.collection('diag').add({ when: new Date().toISOString(), who: 'probe' })
-      .then(() => __log('WRITE OK: able to write to Firestore'))
-      .catch(e => __log('WRITE ERROR: ' + (e?.message || e)));
-  }
-} catch (e) {
-  OFFLINE = true;
-  __log('INIT ERROR: ' + (e?.message || e));
-}
-</script>
-
-    // Initialize (guarded)
-    let db = null;
+    // ===== Initialize Firebase with guard =====
+    let db = null; let OFFLINE = false;
     (function init(){
       try{
-        if(!window.firebase){ __log('ERROR: Firebase SDK not loaded (network may be blocking gstatic)'); return; }
+        if(!window.firebase){
+          OFFLINE = true; logStatus('SDK not available — offline mode');
+          document.getElementById('offlineBanner').classList.remove('hidden');
+          disableOnlineButtons();
+          return;
+        }
         const app = firebase.initializeApp(firebaseConfig);
         db = firebase.firestore();
-        window.__db = db; // expose for other functions
-        __log('Init OK for project: '+(firebaseConfig.projectId||'unknown'));
-        // tiny write probe
-        __db.collection('diag').add({ when:new Date().toISOString(), who:'probe' })
-          .then(()=>__log('WRITE OK: able to write to Firestore'))
-          .catch(e=>__log('WRITE ERROR: '+(e && e.message ? e.message : e)));
-      } catch(e){ __log('INIT ERROR: '+ (e && e.message ? e.message : e)); }
+        logStatus('Init OK for project: ' + (firebaseConfig.projectId || 'unknown'));
+        // probe write
+        db.collection('diag').add({ when:new Date().toISOString(), who:'probe' })
+          .then(()=>logStatus('WRITE OK: able to write to Firestore'))
+          .catch(e=>{ logStatus('WRITE ERROR: ' + (e?.message || e)); });
+      } catch(e){ logStatus('INIT ERROR: ' + (e?.message || e)); }
     })();
 
-    // ===== Diagnostics =====
-    function logDiag(msg){
-      const el = document.getElementById('diagLog');
-      if(el) el.textContent += (el.textContent ? "
-" : "") + msg;
-      const text = document.getElementById('diagText');
-      if(text) text.textContent = msg;
-    }
-    window.addEventListener('error', (e)=>{
-      logDiag('PAGE ERROR: ' + (e && e.message ? e.message : e.filename+':'+e.lineno));
-    });
-
-    // ==== 2) Simple helpers ====
-    const $ = (sel) => document.querySelector(sel);
-    const $$ = (sel) => Array.from(document.querySelectorAll(sel));
-
-    function safeUUID(){
-      try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch(e){}
-      return 'uid-' + Math.random().toString(16).slice(2) + Date.now();
+    function disableOnlineButtons(){
+      document.getElementById('joinBtn').setAttribute('disabled','');
+      document.getElementById('makeBtn').setAttribute('disabled','');
+      document.getElementById('unlockBtn').setAttribute('disabled','');
+      document.getElementById('startBtn').setAttribute('disabled','');
+      document.getElementById('submitBtn').setAttribute('disabled','');
     }
 
-    const state = {
-      uid: safeUUID(),
-      name: "",
-      className: "",
-      roomCode: "",
-      teacherUnlocked: false,
-      round: null, // { challengeId, endsAt }
-      timerInterval: null,
-      startTs: 0,
-      submitted: false
-    };
+    // ===== Utilities =====
+    const $ = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+    function safeUUID(){ try{ if(crypto?.randomUUID) return crypto.randomUUID(); }catch(e){} return 'uid-'+Math.random().toString(16).slice(2)+Date.now(); }
+    const state = { uid: safeUUID(), name:'', className:'', roomCode:'', teacherUnlocked:false, round:null, timerInterval:null, startTs:0, submitted:false };
+    function genRoomCode(cls){ const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; const code = Array.from({length:4},()=>letters[Math.floor(Math.random()*letters.length)]).join(''); const short=(cls||'C').replace(/[^0-9A-Za-z]/g,'').slice(0,3)||'C'; return `${short.toUpperCase()}-${code}`; }
+    function formatMs(ms){ const s=Math.max(0,Math.floor(ms/1000)); const m=Math.floor(s/60).toString().padStart(2,'0'); const r=(s%60).toString().padStart(2,'0'); return `${m}:${r}`; }
+    function toast(msg, ok=true){ const el=document.createElement('div'); el.className=`fixed left-1/2 -translate-x-1/2 top-4 z-50 px-4 py-2 rounded-xl shadow-lg ${ok?'bg-green-600 text-white':'bg-rose-600 text-white'}`; el.textContent=msg; document.body.appendChild(el); setTimeout(()=>el.remove(),2000); }
 
-    function genRoomCode(className) {
-      const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-      const code = Array.from({length:4},()=>letters[Math.floor(Math.random()*letters.length)]).join("");
-      const short = className.replace(/[^0-9A-Za-z]/g, '').slice(0,3) || 'C';
-      return `${short.toUpperCase()}-${code}`;
-    }
-
-    function formatMs(ms){
-      const s = Math.max(0, Math.floor(ms/1000));
-      const m = Math.floor(s/60).toString().padStart(2,'0');
-      const r = (s%60).toString().padStart(2,'0');
-      return `${m}:${r}`;
-    }
-
-    function toast(msg, ok=true){
-      const el = document.createElement('div');
-      el.className = `fixed left-1/2 -translate-x-1/2 top-4 z-50 px-4 py-2 rounded-xl shadow-lg ${ok? 'bg-green-600 text-white':'bg-rose-600 text-white'}`;
-      el.textContent = msg;
-      document.body.appendChild(el);
-      setTimeout(()=>el.remove(), 2000);
-    }
-
-    // ==== 3) Lobby & Room ====
-    let playersUnsub = null;
-
+    // ===== Lobby & Room =====
+    let playersUnsub=null;
     async function createRoom(){
-  const name = document.querySelector('#nameInput').value.trim();
-  const className = document.querySelector('#classSelect').value.trim();
-  if(!name || !className){ toast('Enter name and class', false); return; }
-
-  const code = (className.replace(/[^0-9A-Za-z]/g,'').slice(0,3).toUpperCase() || 'C')
-              + '-' + Math.random().toString(36).slice(2,6).toUpperCase();
-  document.querySelector('#roomInput').value = code;
-
-  if (OFFLINE) {
-    joinRoom(code, name, className); // local-only lobby
-    return;
-  }
-
-  try {
-    await db.collection('rooms').doc(code).set({
-      className,
-      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-      status: 'lobby', currentChallenge: null, endsAt: null
-    }, { merge: true });
-    joinRoom(code, name, className);
-  } catch(e){
-    toast(`Create failed: ${e?.message || e}`, false);
-  }
-}
-
-      const code = genRoomCode(className);
-      $('#roomInput').value = code;
-      if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).set({
-        className, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        status: 'lobby', currentChallenge: null, endsAt: null
-      }, { merge: true });
-      joinRoom(code, name, className);
+      if(OFFLINE){ toast('Offline: network is blocking Firebase', false); return; }
+      const name=$('#nameInput').value.trim(); const className=$('#classSelect').value.trim(); if(!name||!className){ toast('Enter name and class', false); return; }
+      const code=genRoomCode(className); $('#roomInput').value=code;
+      try{
+        await db.collection('rooms').doc(code).set({ className, createdAt: firebase.firestore.FieldValue.serverTimestamp(), status:'lobby', currentChallenge:null, endsAt:null }, { merge:true });
+        joinRoom(code,name,className);
+      }catch(e){ toast('Create failed: '+(e?.message||e), false); }
     }
-
     async function joinExisting(){
-  const name = document.querySelector('#nameInput').value.trim();
-  const className = document.querySelector('#classSelect').value.trim();
-  const code = document.querySelector('#roomInput').value.trim();
-  if(!name || !className || !code){ toast('Fill name, class, and room', false); return; }
-
-  if (OFFLINE) { joinRoom(code, name, className); return; }
-
-  try {
-    const doc = await db.collection('rooms').doc(code).get();
-    if(!doc.exists){ toast('Room not found', false); return; }
-    joinRoom(code, name, className);
-  } catch(e){
-    toast(`Join failed: ${e?.message || e}`, false);
-  }
-}
-
-    async function joinRoom(code, name, className){
-      state.name = name; state.className = className; state.roomCode = code;
-      $('#roomTip').textContent = `Room ${code} • Waiting in lobby...`;
-      $('#teacher').classList.remove('hidden');
-      // add/update player doc
-      if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).collection('players').doc(state.uid).set({
-        name, className, joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        ready: true, score: 0, timeMs: 0, submittedAt: null
-      }, { merge: true });
-
-      // presence list
+      if(OFFLINE){ toast('Offline: network is blocking Firebase', false); return; }
+      const name=$('#nameInput').value.trim(); const className=$('#classSelect').value.trim(); const code=$('#roomInput').value.trim(); if(!name||!className||!code){ toast('Fill name, class, and room', false); return; }
+      try{
+        const doc=await db.collection('rooms').doc(code).get(); if(!doc.exists){ toast('Room not found', false); return; }
+        joinRoom(code,name,className);
+      }catch(e){ toast('Join failed: '+(e?.message||e), false); }
+    }
+    async function joinRoom(code,name,className){
+      state.name=name; state.className=className; state.roomCode=code; $('#roomTip').textContent=`Room ${code} • Waiting in lobby...`; $('#teacher').classList.remove('hidden');
+      await db.collection('rooms').doc(code).collection('players').doc(state.uid).set({ name, className, joinedAt: firebase.firestore.FieldValue.serverTimestamp(), ready:true, score:0, timeMs:0, submittedAt:null }, { merge:true });
       if(playersUnsub) playersUnsub();
-      playersUnsub = __db.collection('rooms').doc(code).collection('players')
-        .orderBy('joinedAt','asc').onSnapshot(snap => {
-          const wrap = $('#players');
-          wrap.innerHTML = '';
-          wrap.parentElement.querySelector('div').classList.remove('hidden');
-          wrap.classList.remove('hidden');
-          snap.forEach(doc=>{
-            const p = doc.data();
-            const chip = document.createElement('div');
-            chip.className = 'px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-sm';
-            chip.textContent = p.name || 'Player';
-            wrap.appendChild(chip);
-          })
-        });
-
-      // listen for round start
-      __db.collection('rooms').doc(code).onSnapshot(doc=>{
-        const r = doc.data();
-        if(!r) return;
-        if(r.status === 'running' && r.currentChallenge){
-          state.round = { challengeId: r.currentChallenge, endsAt: r.endsAt?.toDate?.() || null };
-          startChallenge(r.currentChallenge, r.endsAt?.toDate?.());
-        }
-        if(r.status === 'lobby'){
-          $('#game').classList.add('hidden');
-          $('#board').classList.add('hidden');
-          $('#roundInfo').textContent = 'In lobby. Start a round when ready.';
-        }
-      })
-    }
-
-    // ==== 4) Teacher unlock & start round ====
-    $('#unlockBtn').addEventListener('click', ()=>{
-      const pass = $('#teacherPass').value;
-      if(pass === 'rigby'){
-        state.teacherUnlocked = true;
-        $('#teacherPanel').classList.remove('hidden');
-        $('#roundInfo').textContent = 'Ready to start a round.';
-        toast('Teacher unlocked');
-      } else {
-        toast('Wrong password', false);
-      }
-    });
-
-    $('#startBtn').addEventListener('click', async ()=>{
-      if(!state.teacherUnlocked) return toast('Unlock teacher controls', false);
-      if(!state.roomCode) return toast('Join or create a room first', false);
-      const challengeId = $('#challengeSelect').value;
-      const len = parseInt($('#roundLength').value, 10) || 60;
-      const endsAt = new Date(Date.now() + len*1000);
-      try {
-        if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(state.roomCode).set({
-          status: 'running', currentChallenge: challengeId, endsAt
-        }, { merge: true });
-      } catch (e) {
-        console.error(e);
-        return toast(`Start failed: ${e && e.message ? e.message : e}`, false);
-      }
-      // reset submissions
-      const playersRef = __db.collection('rooms').doc(state.roomCode).collection('players');
-      const players = await playersRef.get();
-      const batch = db.batch();
-      players.forEach(doc=>{
-        batch.set(playersRef.doc(doc.id), { score: 0, timeMs: 0, submittedAt: null }, { merge: true });
+      playersUnsub = db.collection('rooms').doc(code).collection('players').orderBy('joinedAt','asc').onSnapshot(snap=>{
+        const wrap=$('#players'); wrap.innerHTML=''; wrap.parentElement.querySelector('div').classList.remove('hidden'); wrap.classList.remove('hidden');
+        snap.forEach(doc=>{ const p=doc.data(); const chip=document.createElement('div'); chip.className='px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-200 text-sm'; chip.textContent=p.name||'Player'; wrap.appendChild(chip); });
       });
-      await batch.commit();
-      toast('Round started!');
-    });
-
-    // ==== 5) Challenges ====
-    function startTimer(endsAt){
-      clearInterval(state.timerInterval);
-      const endMs = endsAt ? endsAt.getTime() : (Date.now() + 60000);
-      state.startTs = Date.now();
-      state.timerInterval = setInterval(()=>{
-        const remain = Math.max(0, endMs - Date.now());
-        $('#timer').textContent = formatMs(remain);
-        if(remain <= 0){ clearInterval(state.timerInterval); submitScore(true); }
-      }, 200);
+      db.collection('rooms').doc(code).onSnapshot(doc=>{ const r=doc.data(); if(!r) return; if(r.status==='running'&&r.currentChallenge){ state.round={challengeId:r.currentChallenge, endsAt:r.endsAt?.toDate?.()||null}; startChallenge(r.currentChallenge, r.endsAt?.toDate?.()); } if(r.status==='lobby'){ $('#game').classList.add('hidden'); $('#board').classList.add('hidden'); $('#roundInfo').textContent='In lobby. Start a round when ready.'; } });
     }
 
-    function startChallenge(challengeId, endsAt){
-      state.submitted = false;
-      $('#game').classList.remove('hidden');
-      $('#board').classList.add('hidden');
-      $('#feedback').textContent = '';
-      const area = $('#challengeArea');
-      area.innerHTML = '';
-      let title = '';
+    // ===== Teacher controls =====
+    $('#unlockBtn').addEventListener('click', ()=>{ const pass=$('#teacherPass').value; if(pass==='rigby'){ state.teacherUnlocked=true; $('#teacherPanel').classList.remove('hidden'); $('#roundInfo').textContent='Ready to start a round.'; toast('Teacher unlocked'); } else { toast('Wrong password', false); } });
+    $('#startBtn').addEventListener('click', async ()=>{ if(!state.teacherUnlocked) return toast('Unlock teacher controls', false); if(!state.roomCode) return toast('Join or create a room first', false); const challengeId=$('#challengeSelect').value; const len=parseInt($('#roundLength').value,10)||60; const endsAt=new Date(Date.now()+len*1000); try{ await db.collection('rooms').doc(state.roomCode).set({ status:'running', currentChallenge:challengeId, endsAt }, { merge:true }); const playersRef=db.collection('rooms').doc(state.roomCode).collection('players'); const players=await playersRef.get(); const batch=db.batch(); players.forEach(doc=>{ batch.set(playersRef.doc(doc.id), { score:0, timeMs:0, submittedAt:null }, { merge:true }); }); await batch.commit(); toast('Round started!'); }catch(e){ toast('Start failed: '+(e?.message||e), false); }});
 
-      if(challengeId === 'homeRow'){
-        title = 'Home Row Builder (F J anchors)';
-        const answer = ['A','S','D','F','J','K','L',';'];
-        renderDragSort(area, answer, { hint: 'Drag tiles into the correct home-row order, left → right.' });
-        $('#submitBtn').onclick = ()=> gradeDragSort(answer);
-      }
-      else if(challengeId === 'lettersAZ'){
-        title = 'Top Row A–Z (Q → P)';
-        const answer = ['Q','W','E','R','T','Y','U','I','O','P'];
-        renderDragSort(area, answer, { hint: 'Arrange the top row letters like on a real keyboard.' });
-        $('#submitBtn').onclick = ()=> gradeDragSort(answer);
-      }
-      else if(challengeId === 'postureQuiz'){
-        title = 'Posture Quick Check';
-        renderPostureQuiz(area);
-        $('#submitBtn').onclick = gradePostureQuiz;
-      }
+    // ===== Challenges =====
+    function startTimer(endsAt){ clearInterval(state.timerInterval); const endMs=endsAt?endsAt.getTime():(Date.now()+60000); state.startTs=Date.now(); state.timerInterval=setInterval(()=>{ const remain=Math.max(0,endMs-Date.now()); $('#timer').textContent=formatMs(remain); if(remain<=0){ clearInterval(state.timerInterval); submitScore(true); } },200); }
+    function startChallenge(challengeId, endsAt){ state.submitted=false; $('#game').classList.remove('hidden'); $('#board').classList.add('hidden'); $('#feedback').textContent=''; const area=$('#challengeArea'); area.innerHTML=''; let title=''; if(challengeId==='homeRow'){ title='Home Row Builder (F J anchors)'; const answer=['A','S','D','F','J','K','L',';']; renderDragSort(area, answer, { hint:'Drag tiles into the correct home-row order, left → right.' }); $('#submitBtn').onclick=()=>gradeDragSort(answer);} else if(challengeId==='lettersAZ'){ title='Top Row A–Z (Q → P)'; const answer=['Q','W','E','R','T','Y','U','I','O','P']; renderDragSort(area, answer, { hint:'Arrange the top row letters like on a real keyboard.' }); $('#submitBtn').onclick=()=>gradeDragSort(answer);} else if(challengeId==='postureQuiz'){ title='Posture Quick Check'; renderPostureQuiz(area); $('#submitBtn').onclick=gradePostureQuiz;} $('#challengeTitle').textContent=title; startTimer(endsAt); }
+    function renderDragSort(container, answer, opts={}){ const shuffled=[...answer].sort(()=>Math.random()-0.5); const instr=document.createElement('p'); instr.className='text-sm text-slate-600'; instr.textContent=opts.hint||''; container.appendChild(instr); const bank=document.createElement('div'); bank.id='bank'; bank.className='mt-3 flex flex-wrap gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200'; shuffled.forEach(ch=>bank.appendChild(makeTile(ch))); const row=document.createElement('div'); row.id='row'; row.className='mt-4 grid grid-cols-8 sm:grid-cols-8 gap-2'; for(let i=0;i<answer.length;i++) row.appendChild(makeDropSlot()); container.appendChild(bank); container.appendChild(row); enableDnD(); }
+    function makeTile(text){ const el=document.createElement('div'); el.className='tile cursor-move select-none px-4 py-3 rounded-2xl bg-white border border-slate-300 shadow-sm font-bold text-lg text-center'; el.draggable=true; el.textContent=text; return el; }
+    function makeDropSlot(){ const el=document.createElement('div'); el.className='dropzone h-12 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400'; el.dataset.slot='1'; return el; }
+    function enableDnD(){ document.addEventListener('dragstart', e=>{ if(e.target.classList.contains('tile')){ e.dataTransfer.setData('text/plain', e.target.textContent); e.dataTransfer.effectAllowed='move'; e.target.classList.add('ring','ring-indigo-500'); }}); document.addEventListener('dragend', e=>{ if(e.target.classList.contains('tile')){ e.target.classList.remove('ring','ring-indigo-500'); }}); $$('#challengeArea .dropzone').forEach(zone=>{ zone.addEventListener('dragover', e=>{ e.preventDefault(); zone.classList.add('over'); }); zone.addEventListener('dragleave', ()=> zone.classList.remove('over')); zone.addEventListener('drop', e=>{ e.preventDefault(); zone.classList.remove('over'); const text=e.dataTransfer.getData('text/plain'); if(!text) return; zone.innerHTML=''; const tile=makeTile(text); tile.draggable=true; zone.appendChild(tile); }); }); $('#bank').addEventListener('dragover', e=> e.preventDefault()); $('#bank').addEventListener('drop', e=>{ e.preventDefault(); const text=e.dataTransfer.getData('text/plain'); if(!text) return; const tile=makeTile(text); $('#bank').appendChild(tile); }); }
+    async function gradeDragSort(answer){ if(state.submitted) return; const slots=$$('#row .dropzone'); const attempt=slots.map(z=>z.firstChild?z.firstChild.textContent:''); let correct=0; for(let i=0;i<answer.length;i++) if(attempt[i]===answer[i]) correct++; const accuracy=correct/answer.length; const timeMs=Date.now()-state.startTs; const score=Math.round(accuracy*1000 - timeMs/100); $('#feedback').textContent=`Accuracy ${(accuracy*100).toFixed(0)}% • Time ${formatMs(timeMs)} • Score ${score}`; await submitScore(false, score, timeMs, { accuracy, correct }); }
+    function renderPostureQuiz(container){ const items=[{q:'Feet flat on the floor',a:true},{q:'Wrists rest heavily on the keyboard',a:false},{q:'Back straight against the chair',a:true},{q:'Eyes very close to the screen',a:false},{q:'F and J fingers on bumps',a:true}]; const wrap=document.createElement('div'); wrap.className='grid gap-2'; items.forEach((it,i)=>{ const row=document.createElement('div'); row.className='flex items-center justify-between gap-2 p-3 rounded-xl border border-slate-200'; row.innerHTML=`<div class="font-medium">${i+1}. ${it.q}</div><div class="flex gap-2"><label class="inline-flex items-center gap-1 text-sm"><input type="radio" name="q${i}" value="true" class="accent-indigo-600"> True</label><label class="inline-flex items-center gap-1 text-sm"><input type="radio" name="q${i}" value="false" class="accent-indigo-600"> False</label></div>`; wrap.appendChild(row); }); container.appendChild(wrap); container.dataset.postureKey=JSON.stringify(items.map(it=>it.a)); }
+    async function gradePostureQuiz(){ if(state.submitted) return; const key=JSON.parse($('#challengeArea').dataset.postureKey||'[]'); let correct=0; key.forEach((ans,i)=>{ const picked=document.querySelector(`input[name="q${i}"]:checked`); if(picked && String(ans)===picked.value) correct++; }); const accuracy=correct/key.length; const timeMs=Date.now()-state.startTs; const score=Math.round(accuracy*1000 - timeMs/100); $('#feedback').textContent=`Accuracy ${(accuracy*100).toFixed(0)}% • Time ${formatMs(timeMs)} • Score ${score}`; await submitScore(false, score, timeMs, { accuracy, correct }); }
+    async function submitScore(auto=false, score=0, timeMs=0, extra={}){ if(!state.roomCode) return; state.submitted=true; clearInterval(state.timerInterval); const payload={ score, timeMs, submittedAt: firebase.firestore.FieldValue.serverTimestamp(), auto:!!auto, name: state.name }; Object.assign(payload, extra); await db.collection('rooms').doc(state.roomCode).collection('players').doc(state.uid).set(payload, { merge:true }); await renderBoard(); $('#board').classList.remove('hidden'); }
+    async function renderBoard(){ if(!state.roomCode) return; const snap=await db.collection('rooms').doc(state.roomCode).collection('players').orderBy('score','desc').orderBy('timeMs','asc').limit(50).get(); const rows=[]; let rank=1; snap.forEach(doc=>{ const p=doc.data(); rows.push(`<tr class="border-b last:border-b-0"><td class="py-2 pr-3">${rank++}</td><td class="py-2 pr-3 font-semibold">${p.name||'Player'}</td><td class="py-2 pr-3">${p.score||0}</td><td class="py-2">${p.timeMs? formatMs(p.timeMs): '—'}</td></tr>`); }); $('#boardTable').innerHTML=`<div class="overflow-x-auto rounded-xl border border-slate-200"><table class="min-w-full text-sm"><thead class="bg-slate-50 text-slate-600"><tr><th class="text-left py-2 pl-3">#</th><th class="text-left py-2">Name</th><th class="text-left py-2">Score</th><th class="text-left py-2">Time</th></tr></thead><tbody class="bg-white">${rows.join('')}</tbody></table></div>`; }
 
-      $('#challengeTitle').textContent = title;
-      startTimer(endsAt);
-    }
+    // ===== Buttons =====
+    document.getElementById('makeBtn').addEventListener('click', createRoom);
+    document.getElementById('joinBtn').addEventListener('click', joinExisting);
+    document.getElementById('copyCodeBtn').addEventListener('click', ()=>{ const v=$('#roomInput').value.trim(); if(!v) return; navigator.clipboard.writeText(v); toast('Copied room code'); });
 
-    function renderDragSort(container, answer, opts={}){
-      const shuffled = [...answer].sort(()=> Math.random()-0.5);
-      const instr = document.createElement('p');
-      instr.className = 'text-sm text-slate-600';
-      instr.textContent = opts.hint || '';
-      container.appendChild(instr);
-
-      const bank = document.createElement('div');
-      bank.id = 'bank';
-      bank.className = 'mt-3 flex flex-wrap gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200';
-      shuffled.forEach(ch=> bank.appendChild(makeTile(ch)));
-
-      const row = document.createElement('div');
-      row.id = 'row';
-      row.className = 'mt-4 grid grid-cols-8 sm:grid-cols-8 gap-2';
-      for(let i=0;i<answer.length;i++) row.appendChild(makeDropSlot());
-
-      container.appendChild(bank);
-      container.appendChild(row);
-      enableDnD();
-    }
-
-    function makeTile(text){
-      const el = document.createElement('div');
-      el.className = 'tile cursor-move select-none px-4 py-3 rounded-2xl bg-white border border-slate-300 shadow-sm font-bold text-lg text-center';
-      el.draggable = true;
-      el.textContent = text;
-      return el;
-    }
-
-    function makeDropSlot(){
-      const el = document.createElement('div');
-      el.className = 'dropzone h-12 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400';
-      el.dataset.slot = '1';
-      return el;
-    }
-
-    function enableDnD(){
-      document.addEventListener('dragstart', e=>{
-        if(e.target.classList.contains('tile')){
-          e.dataTransfer.setData('text/plain', e.target.textContent);
-          e.dataTransfer.effectAllowed = 'move';
-          e.target.classList.add('ring','ring-indigo-500');
-        }
-      });
-      document.addEventListener('dragend', e=>{
-        if(e.target.classList.contains('tile')){
-          e.target.classList.remove('ring','ring-indigo-500');
-        }
-      });
-      $$('#challengeArea .dropzone').forEach(zone=>{
-        zone.addEventListener('dragover', e=>{ e.preventDefault(); zone.classList.add('over'); });
-        zone.addEventListener('dragleave', ()=> zone.classList.remove('over'));
-        zone.addEventListener('drop', e=>{
-          e.preventDefault();
-          zone.classList.remove('over');
-          const text = e.dataTransfer.getData('text/plain');
-          if(!text) return;
-          zone.innerHTML = '';
-          const tile = makeTile(text);
-          tile.draggable = true;
-          zone.appendChild(tile);
-        });
-      });
-      $('#bank').addEventListener('dragover', e=> e.preventDefault());
-      $('#bank').addEventListener('drop', e=>{
-        e.preventDefault();
-        const text = e.dataTransfer.getData('text/plain');
-        if(!text) return;
-        const tile = makeTile(text);
-        $('#bank').appendChild(tile);
-      });
-    }
-
-    async function gradeDragSort(answer){
-      if(state.submitted) return;
-      const slots = $$('#row .dropzone');
-      const attempt = slots.map(z=> (z.firstChild? z.firstChild.textContent: ''));
-      let correct = 0;
-      for(let i=0;i<answer.length;i++) if(attempt[i] === answer[i]) correct++;
-      const accuracy = correct / answer.length;
-      const timeMs = Date.now() - state.startTs;
-      const score = Math.round(accuracy * 1000 - timeMs/100);
-      $('#feedback').textContent = `Accuracy ${(accuracy*100).toFixed(0)}% • Time ${formatMs(timeMs)} • Score ${score}`;
-      await submitScore(false, score, timeMs, { accuracy, correct });
-    }
-
-    function renderPostureQuiz(container){
-      const items = [
-        { q: 'Feet flat on the floor', a: true },
-        { q: 'Wrists rest heavily on the keyboard', a: false },
-        { q: 'Back straight against the chair', a: true },
-        { q: 'Eyes very close to the screen', a: false },
-        { q: 'F and J fingers on bumps', a: true }
-      ];
-      const wrap = document.createElement('div');
-      wrap.className = 'grid gap-2';
-      items.forEach((it,i)=>{
-        const row = document.createElement('div');
-        row.className = 'flex items-center justify-between gap-2 p-3 rounded-xl border border-slate-200';
-        row.innerHTML = `<div class="font-medium">${i+1}. ${it.q}</div>
-          <div class="flex gap-2">
-            <label class="inline-flex items-center gap-1 text-sm"><input type="radio" name="q${i}" value="true" class="accent-indigo-600"> True</label>
-            <label class="inline-flex items-center gap-1 text-sm"><input type="radio" name="q${i}" value="false" class="accent-indigo-600"> False</label>
-          </div>`;
-        wrap.appendChild(row);
-      });
-      container.appendChild(wrap);
-      container.dataset.postureKey = JSON.stringify(items.map(it=>it.a));
-    }
-
-    async function gradePostureQuiz(){
-      if(state.submitted) return;
-      const key = JSON.parse($('#challengeArea').dataset.postureKey || '[]');
-      let correct = 0;
-      key.forEach((ans,i)=>{
-        const picked = document.querySelector(`input[name="q${i}"]:checked`);
-        if(picked && String(ans) === picked.value) correct++;
-      });
-      const accuracy = correct / key.length;
-      const timeMs = Date.now() - state.startTs;
-      const score = Math.round(accuracy * 1000 - timeMs/100);
-      $('#feedback').textContent = `Accuracy ${(accuracy*100).toFixed(0)}% • Time ${formatMs(timeMs)} • Score ${score}`;
-      await submitScore(false, score, timeMs, { accuracy, correct });
-    }
-
-    async function submitScore(auto=false, score=0, timeMs=0, extra={}){
-      if(!state.roomCode) return;
-      state.submitted = true;
-      clearInterval(state.timerInterval);
-      const payload = {
-        score, timeMs, submittedAt: firebase.firestore.FieldValue.serverTimestamp(),
-        auto: !!auto, name: state.name
-      };
-      Object.assign(payload, extra);
-      if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(state.roomCode).collection('players').doc(state.uid).set(payload, { merge: true });
-      await renderBoard();
-      $('#board').classList.remove('hidden');
-    }
-
-    async function renderBoard(){
-      if(!state.roomCode) return;
-      const snap = if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(state.roomCode).collection('players')
-        .orderBy('score','desc').orderBy('timeMs','asc').limit(50).get();
-      const rows = [];
-      let rank = 1;
-      snap.forEach(doc=>{
-        const p = doc.data();
-        rows.push(`<tr class="border-b last:border-b-0"><td class="py-2 pr-3">${rank++}</td><td class="py-2 pr-3 font-semibold">${p.name||'Player'}</td><td class="py-2 pr-3">${p.score||0}</td><td class="py-2">${p.timeMs? formatMs(p.timeMs): '—'}</td></tr>`);
-      });
-      $('#boardTable').innerHTML = `<div class="overflow-x-auto rounded-xl border border-slate-200">
-        <table class="min-w-full text-sm">
-          <thead class="bg-slate-50 text-slate-600">
-            <tr><th class="text-left py-2 pl-3">#</th><th class="text-left py-2">Name</th><th class="text-left py-2">Score</th><th class="text-left py-2">Time</th></tr>
-          </thead>
-          <tbody class="bg-white">${rows.join('')}</tbody>
-        </table>
-      </div>`;
-    }
-
-    $('#refreshBoard').addEventListener('click', renderBoard);
-
-    // ==== 6) UI wiring ====
-    $('#makeBtn').addEventListener('click', createRoom);
-    $('#joinBtn').addEventListener('click', joinExisting);
-    $('#copyCodeBtn').addEventListener('click', ()=>{
-      const v = $('#roomInput').value.trim();
-      if(!v) return;
-      navigator.clipboard.writeText(v); toast('Copied room code');
-    });
+    // ===== Diagnostics buttons =====
+    document.getElementById('diagWrite').addEventListener('click', ()=>{ if(OFFLINE){ logStatus('OFFLINE: skipping write'); return; } db.collection('diag').add({ when:new Date().toISOString(), who:'manual' }).then(()=>logStatus('WRITE OK')).catch(e=>logStatus('WRITE ERROR: '+(e?.message||e))); });
+    document.getElementById('diagClear').addEventListener('click', ()=>{ const p=document.getElementById('diagLog'); if(p) p.textContent=''; const t=document.getElementById('diagText'); if(t) t.textContent='Ready'; });
   </script>
 
-  <!-- ==== 7) Firestore Security Rules (save as rules):
+  <!-- Firestore Rules for testing (optional):
   rules_version = '2';
   service cloud.firestore {
     match /databases/{database}/documents {
-      match /rooms/{room} {
-        allow read, write: if true; // Simplest for classroom testing — tighten later
-        match /players/{player} {
-          allow read: if true; 
-          allow write: if request.resource.data.name is string &&
-                        (request.resource.data.score is int || request.resource.data.score == null);
-        }
-      }
+      match /{document=**} { allow read, write: if true; }
     }
   }
-  ==== -->
-
-  <!-- ==== 8) Deployment Notes
-   1) Create a Firebase project → Firestore in test mode → paste config above.
-   2) File → Save as index.html in a repo.
-   3) GitHub → New repo (public) → upload index.html.
-   4) Settings → Pages → Deploy from main branch → root. Open the Pages URL.
-   5) Share the URL. Teacher creates one room per class (or reuse).
-
-   Ideas to extend:
-   - Add Browser Icons Sort with SVGs.
-   - Team Relay mode.
-   - Results export to CSV.
-   - Confetti when accuracy == 100%.
-  ==== -->
+  -->
 </body>
 </html>
-
