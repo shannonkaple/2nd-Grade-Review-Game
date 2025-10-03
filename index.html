@@ -158,6 +158,14 @@
   <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
 
   <script>
+    // ==== Diagnostics utilities MUST be defined before init ====
+    function __log(msg){
+      var t=document.getElementById('diagText'); if(t) t.textContent=msg;
+      var p=document.getElementById('diagLog'); if(p){ p.textContent += (p.textContent?'
+':'')+msg; }
+    }
+    window.addEventListener('error', function(e){ __log('PAGE ERROR: '+(e && e.message ? e.message : (e.filename+':'+e.lineno))); });
+
     // ==== 1) Configure Firebase (real config) ====
     const firebaseConfig = {
       apiKey: "AIzaSyDiqYEzZSgkHQKngLnGz-aBPMx9R4Qva2g",
@@ -169,14 +177,27 @@
       measurementId: "G-Q9PSF3KVQ3"
     };
 
-    // Initialize
-    const app = firebase.initializeApp(firebaseConfig);
-    const db = firebase.firestore();
+    // Initialize (guarded)
+    let db = null;
+    (function init(){
+      try{
+        if(!window.firebase){ __log('ERROR: Firebase SDK not loaded (network may be blocking gstatic)'); return; }
+        const app = firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        window.__db = db; // expose for other functions
+        __log('Init OK for project: '+(firebaseConfig.projectId||'unknown'));
+        // tiny write probe
+        __db.collection('diag').add({ when:new Date().toISOString(), who:'probe' })
+          .then(()=>__log('WRITE OK: able to write to Firestore'))
+          .catch(e=>__log('WRITE ERROR: '+(e && e.message ? e.message : e)));
+      } catch(e){ __log('INIT ERROR: '+ (e && e.message ? e.message : e)); }
+    })();
 
     // ===== Diagnostics =====
     function logDiag(msg){
       const el = document.getElementById('diagLog');
-      if(el) el.textContent += (el.textContent ? "\n" : "") + msg;
+      if(el) el.textContent += (el.textContent ? "
+" : "") + msg;
       const text = document.getElementById('diagText');
       if(text) text.textContent = msg;
     }
@@ -237,7 +258,7 @@
       const code = genRoomCode(className);
       $('#roomInput').value = code;
       try {
-        await db.collection('rooms').doc(code).set({
+        if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).set({
           className, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           status: 'lobby', currentChallenge: null, endsAt: null
         }, { merge: true });
@@ -249,7 +270,7 @@
     }
       const code = genRoomCode(className);
       $('#roomInput').value = code;
-      await db.collection('rooms').doc(code).set({
+      if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).set({
         className, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         status: 'lobby', currentChallenge: null, endsAt: null
       }, { merge: true });
@@ -262,7 +283,7 @@
       const code = $('#roomInput').value.trim();
       if(!name || !className || !code){ toast('Fill name, class, and room', false); return; }
       try {
-        const doc = await db.collection('rooms').doc(code).get();
+        const doc = if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).get();
         if(!doc.exists){ toast('Room not found', false); return; }
         joinRoom(code, name, className);
       } catch (e) {
@@ -270,7 +291,7 @@
         toast(`Join failed: ${e && e.message ? e.message : e}`, false);
       }
     }
-      const doc = await db.collection('rooms').doc(code).get();
+      const doc = if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).get();
       if(!doc.exists){ toast('Room not found', false); return; }
       joinRoom(code, name, className);
     }
@@ -280,14 +301,14 @@
       $('#roomTip').textContent = `Room ${code} • Waiting in lobby...`;
       $('#teacher').classList.remove('hidden');
       // add/update player doc
-      await db.collection('rooms').doc(code).collection('players').doc(state.uid).set({
+      if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(code).collection('players').doc(state.uid).set({
         name, className, joinedAt: firebase.firestore.FieldValue.serverTimestamp(),
         ready: true, score: 0, timeMs: 0, submittedAt: null
       }, { merge: true });
 
       // presence list
       if(playersUnsub) playersUnsub();
-      playersUnsub = db.collection('rooms').doc(code).collection('players')
+      playersUnsub = __db.collection('rooms').doc(code).collection('players')
         .orderBy('joinedAt','asc').onSnapshot(snap => {
           const wrap = $('#players');
           wrap.innerHTML = '';
@@ -303,7 +324,7 @@
         });
 
       // listen for round start
-      db.collection('rooms').doc(code).onSnapshot(doc=>{
+      __db.collection('rooms').doc(code).onSnapshot(doc=>{
         const r = doc.data();
         if(!r) return;
         if(r.status === 'running' && r.currentChallenge){
@@ -338,7 +359,7 @@
       const len = parseInt($('#roundLength').value, 10) || 60;
       const endsAt = new Date(Date.now() + len*1000);
       try {
-        await db.collection('rooms').doc(state.roomCode).set({
+        if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(state.roomCode).set({
           status: 'running', currentChallenge: challengeId, endsAt
         }, { merge: true });
       } catch (e) {
@@ -346,7 +367,7 @@
         return toast(`Start failed: ${e && e.message ? e.message : e}`, false);
       }
       // reset submissions
-      const playersRef = db.collection('rooms').doc(state.roomCode).collection('players');
+      const playersRef = __db.collection('rooms').doc(state.roomCode).collection('players');
       const players = await playersRef.get();
       const batch = db.batch();
       players.forEach(doc=>{
@@ -534,14 +555,14 @@
         auto: !!auto, name: state.name
       };
       Object.assign(payload, extra);
-      await db.collection('rooms').doc(state.roomCode).collection('players').doc(state.uid).set(payload, { merge: true });
+      if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(state.roomCode).collection('players').doc(state.uid).set(payload, { merge: true });
       await renderBoard();
       $('#board').classList.remove('hidden');
     }
 
     async function renderBoard(){
       if(!state.roomCode) return;
-      const snap = await db.collection('rooms').doc(state.roomCode).collection('players')
+      const snap = if(!window.__db){ toast('Firebase not ready — likely blocked by network', false); return; } await ____db.collection('rooms').doc(state.roomCode).collection('players')
         .orderBy('score','desc').orderBy('timeMs','asc').limit(50).get();
       const rows = [];
       let rank = 1;
