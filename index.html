@@ -176,42 +176,25 @@
     // ===== Diagnostics =====
     function logDiag(msg){
       const el = document.getElementById('diagLog');
-      if(el) el.textContent += (el.textContent ? "
-" : "") + msg;
+      if(el) el.textContent += (el.textContent ? "\n" : "") + msg;
       const text = document.getElementById('diagText');
       if(text) text.textContent = msg;
     }
-
-    async function runDiagnostics(){
-      try {
-        if(!window.firebase){
-          logDiag('ERROR: Firebase SDK not loaded');
-          return;
-        }
-        logDiag('SDK loaded');
-        logDiag('Init OK for project: ' + (firebaseConfig.projectId || 'unknown'));
-        // Try a tiny write (safe collection name)
-        await db.collection('diag').add({ when: new Date().toISOString(), who: 'status-check' });
-        logDiag('WRITE OK: able to write to Firestore');
-      } catch (e) {
-        logDiag('WRITE ERROR: ' + (e && e.message ? e.message : e));
-      }
-    }
-
-    window.addEventListener('load', ()=>{
-      const btn = document.getElementById('diagWrite');
-      const clr = document.getElementById('diagClear');
-      if(btn) btn.addEventListener('click', runDiagnostics);
-      if(clr) clr.addEventListener('click', ()=>{ const el = document.getElementById('diagLog'); if(el) el.textContent=''; document.getElementById('diagText').textContent='Ready'; });
-      runDiagnostics();
+    window.addEventListener('error', (e)=>{
+      logDiag('PAGE ERROR: ' + (e && e.message ? e.message : e.filename+':'+e.lineno));
     });
 
     // ==== 2) Simple helpers ====
     const $ = (sel) => document.querySelector(sel);
     const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+    function safeUUID(){
+      try { if (window.crypto && crypto.randomUUID) return crypto.randomUUID(); } catch(e){}
+      return 'uid-' + Math.random().toString(16).slice(2) + Date.now();
+    }
+
     const state = {
-      uid: crypto.randomUUID(),
+      uid: safeUUID(),
       name: "",
       className: "",
       roomCode: "",
